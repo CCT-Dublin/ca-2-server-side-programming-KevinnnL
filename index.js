@@ -116,4 +116,59 @@ function validateRow(originalRow, headerMeta) {
 
     // Create table with snake_case columns if not exists
     const columnNames = headerMeta.map(h => h.snake);
- 
+    try {
+      await createTableIfNotExists(columnNames);
+      console.log('Table checked/created (mysql_table).');
+    } catch (createErr) {
+      console.error('Error creating table:', createErr.message);
+      process.exit(1);
+    }
+       // Validate each row and collect valid rows
+    const validRows = [];
+    const errors = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      const rowNumber = i + 2; // +2: because CSV row 1 = headers, data starts at row 2
+      const { validated, errors: rowErrors } = validateRow(row, headerMeta);
+
+      if (rowErrors.length > 0) {
+        errors.push({ row: rowNumber, issues: rowErrors });
+        console.error(`Row ${rowNumber} failed validation: ${rowErrors.join('; ')}`);
+        continue;
+      }
+
+      // Build array of values in columnNames order for bulk insert
+      const values = columnNames.map(col => validated[col]);
+      validRows.push(values);
+    }
+
+    console.log(`Validation complete. ${validRows.length} valid rows, ${errors.length} invalid rows.`);
+
+    if (validRows.length > 0) {
+      try {
+        const res = await insertMany(columnNames, validRows);
+        console.log(`Inserted ${res.inserted} rows into mysql_table.`);
+      } catch (insErr) {
+        console.error('Insert failed:', insErr.message);
+        process.exit(1);
+      }
+    } else {
+      console.log('No valid rows to insert.');
+    }
+
+    // Optionally output a report file with errors
+    if (errors.length > 0) {
+      const report = {
+        timestamp: new Date().toISOString(),
+        file: INPUT_FILE,
+        invalid_count: errors.length,
+        details: errors
+      };
+      fs.writeFileSync('csv_validation_report.json', JSON.stringify(report, null, 2), 'utf8');
+      console.log('Validation report saved to csv_validation_report.json');
+    }
+
+    process.exit(0);
+  });
+})();
