@@ -30,3 +30,43 @@ async function createTableIfNotExists(columnNames) {
       ${colsSql}
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.query(createSql);
+  } finally {
+    conn.release();
+  }
+}
+
+async function insertMany(columnNames, rowsArray) {
+  // columnNames: array of columns in insertion order
+  // rowsArray: array of arrays (each inner array corresponds to columnNames order)
+  if (!Array.isArray(rowsArray) || rowsArray.length === 0) return { inserted: 0 };
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Build bulk insert: INSERT INTO table (c1,c2) VALUES ?, ?, ...
+    // mysql2 supports bulk insert with the VALUES ? placeholder and array of arrays.
+    const cols = columnNames.map(c => `\`${c}\``).join(', ');
+    const sql = `INSERT INTO \`${TABLE_NAME}\` (${cols}) VALUES ?`;
+    const [result] = await conn.query(sql, [rowsArray]);
+
+    await conn.commit();
+    return { inserted: result.affectedRows || rowsArray.length };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+module.exports = {
+  pool,
+  createTableIfNotExists,
+  insertMany,
+  TABLE_NAME
+};

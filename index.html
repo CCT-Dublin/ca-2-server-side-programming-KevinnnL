@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sign up — Demo</title>
+  <!--Google Font-->>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <div class="card-left">
+        <h1 class="brand"></h1>
+        <p class="subtitle">Create your profile. We validate in real-time and on server.</p>
+
+        <form id="user-form" novalidate>
+          <label class="label">First name
+            <input id="first_name" name="first_name" maxlength="20" required />
+          </label>
+          <div id="first_name_error" class="error" aria-live="polite"></div>
+
+          <label class="label">Second name
+            <input id="second_name" name="second_name" maxlength="20" required />
+          </label>
+          <div id="second_name_error" class="error" aria-live="polite"></div>
+
+          <label class="label">Email
+            <input id="email" name="email" type="email" required />
+          </label>
+          <div id="email_error" class="error" aria-live="polite"></div>
+
+          <label class="label">Phone number (10 digits)
+            <input id="phone" name="phone" inputmode="numeric" maxlength="10" required />
+          </label>
+          <div id="phone_error" class="error" aria-live="polite"></div>
+
+          <label class="label">Eircode (6 chars, starts with number)
+            <input id="eircode" name="eircode" maxlength="6" required />
+          </label>
+          <div id="eircode_error" class="error" aria-live="polite"></div>
+
+          <button class="btn" type="submit">Create account</button>
+
+          <div id="form_message" role="status" class="form-message"></div>
+        </form>
+
+        <p class="small muted">Client-side validation runs before sending. Server re-validates before saving.</p>
+      </div>
+
+      <aside class="card-right">
+        <img class="art" src="/mnt/data/b14c1d51-f556-45d6-896b-3eb8ff632914.png" alt="Uploaded screenshot" />
+        <p class="feature">Quick demo design inspired by Revolut: clean card, rounded inputs, gradient background.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    // ===== client-side validation =====
+    function onlyLettersOrNumbers(value) {
+      return /^[A-Za-z0-9]+$/.test(value);
+    }
+    function isValidEmail(value) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }
+    function onlyDigits(value) {
+      return /^\d+$/.test(value);
+    }
+    function isAlphanumeric(value) {
+      return /^[A-Za-z0-9]+$/.test(value);
+    }
+    function startsWithNumber(value) {
+      return /^[0-9]/.test(value);
+    }
+
+    const form = document.getElementById('user-form');
+    const fields = {
+      first_name: document.getElementById('first_name'),
+      second_name: document.getElementById('second_name'),
+      email: document.getElementById('email'),
+      phone: document.getElementById('phone'),
+      eircode: document.getElementById('eircode')
+    };
+    const errors = {
+      first_name: document.getElementById('first_name_error'),
+      second_name: document.getElementById('second_name_error'),
+      email: document.getElementById('email_error'),
+      phone: document.getElementById('phone_error'),
+      eircode: document.getElementById('eircode_error'),
+    };
+    const message = document.getElementById('form_message');
+
+    function validateAll() {
+      Object.values(errors).forEach(e => e.textContent = '');
+      message.textContent = '';
+      message.className = 'form-message';
+
+      const vals = {
+        first_name: fields.first_name.value.trim(),
+        second_name: fields.second_name.value.trim(),
+        email: fields.email.value.trim(),
+        phone: fields.phone.value.trim(),
+        eircode: fields.eircode.value.trim()
+      };
+
+      let ok = true;
+
+      if (!vals.first_name) {
+        errors.first_name.textContent = 'First name is required.';
+        ok = false;
+      } else if (vals.first_name.length > 20) {
+        errors.first_name.textContent = 'Max 20 characters allowed.';
+        ok = false;
+      } else if (!onlyLettersOrNumbers(vals.first_name)) {
+        errors.first_name.textContent = 'Only letters and numbers allowed.';
+        ok = false;
+      }
+
+      if (!vals.second_name) {
+        errors.second_name.textContent = 'Second name is required.';
+        ok = false;
+      } else if (vals.second_name.length > 20) {
+        errors.second_name.textContent = 'Max 20 characters allowed.';
+        ok = false;
+      } else if (!onlyLettersOrNumbers(vals.second_name)) {
+        errors.second_name.textContent = 'Only letters and numbers allowed.';
+        ok = false;
+      }
+
+      if (!vals.email) {
+        errors.email.textContent = 'Email is required.';
+        ok = false;
+      } else if (!isValidEmail(vals.email)) {
+        errors.email.textContent = 'Enter a valid email address.';
+        ok = false;
+      }
+
+      if (!vals.phone) {
+        errors.phone.textContent = 'Phone number is required.';
+        ok = false;
+      } else if (!onlyDigits(vals.phone)) {
+        errors.phone.textContent = 'Phone must contain only numbers.';
+        ok = false;
+      } else if (vals.phone.length !== 10) {
+        errors.phone.textContent = 'Phone must be exactly 10 digits.';
+        ok = false;
+      }
+
+      if (!vals.eircode) {
+        errors.eircode.textContent = 'Eircode is required.';
+        ok = false;
+      } else if (vals.eircode.length !== 6) {
+        errors.eircode.textContent = 'Eircode must be exactly 6 characters.';
+        ok = false;
+      } else if (!startsWithNumber(vals.eircode)) {
+        errors.eircode.textContent = 'Eircode must start with a number.';
+        ok = false;
+      } else if (!isAlphanumeric(vals.eircode)) {
+        errors.eircode.textContent = 'Eircode must be alphanumeric (letters and numbers only).';
+        ok = false;
+      }
+
+      return { ok, vals };
+    }
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const { ok, vals } = validateAll();
+
+      if (!ok) {
+        message.textContent = 'Fix form errors before submitting.';
+        message.classList.add('error');
+        return;
+      }
+
+      try {
+        message.textContent = 'Submitting...';
+        message.classList.remove('error', 'success');
+
+        const resp = await fetch('/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vals)
+        });
+
+        const data = await resp.json();
+        if (resp.ok) {
+          message.textContent = 'Saved successfully.';
+          message.classList.add('success');
+          form.reset();
+        } else {
+          message.textContent = data.message || 'Server validation failed.';
+          message.classList.add('error');
+          if (data.errors && Array.isArray(data.errors)) {
+            data.errors.forEach(er => {
+              if (er.field && errors[er.field]) {
+                errors[er.field].textContent = er.msg;
+              }
+            });
+          }
+        }
+      } catch (err) {
+        message.textContent = 'Network/server error. Check console.';
+        message.classList.add('error');
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
