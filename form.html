@@ -1,0 +1,230 @@
+<!doctype html>
+
+<html lang="en">
+<link rel="stylesheet" href="style.css">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Form Submission — CA2</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 24px; background:#f7f9fc; color:#111; }
+    .container { max-width:680px; margin:0 auto; background:white; padding:20px; border-radius:10px; box-shadow:0 6px 18px rgba(20,30,40,0.06); }
+    h1 { margin-top:0; font-size:1.5rem; }
+    form { display:grid; gap:12px; }
+    label { display:block; font-weight:600; margin-bottom:6px; }
+    input[type="text"], input[type="email"], input[type="tel"] {
+      width:100%; padding:10px 12px; border:1px solid #ccd6e3; border-radius:8px; font-size:1rem;
+    }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .hint { font-size:.9rem; color:#666; margin-top:2px; }
+    .error { color:#b00020; font-size:.875rem; margin-top:6px; display:none; }
+    .error.visible { display:block; }
+    button { padding:10px 14px; border-radius:8px; border:0; background:#0b66ff; color:white; font-weight:600; cursor:pointer; }
+    button[disabled] { opacity:.6; cursor:default; }
+    .status { margin-top:10px; font-size:.95rem; }
+    small.rule { display:block; color:#444; font-size:.9rem; margin-top:6px; }
+    .field { position:relative; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Form Submission</h1>
+    <p class="hint">Fill out the fields and submit. Client-side validation runs before sending to the server.</p>
+
+```
+<form id="mainForm" novalidate>
+  <div class="row">
+    <div class="field">
+      <label for="first_name">First name</label>
+      <input id="first_name" name="first_name" type="text" maxlength="20" autocomplete="given-name" required />
+      <small class="rule">Only letters or numbers. Max 20 characters.</small>
+      <div class="error" id="err_first_name"></div>
+    </div>
+
+    <div class="field">
+      <label for="second_name">Second name</label>
+      <input id="second_name" name="second_name" type="text" maxlength="20" autocomplete="family-name" required />
+      <small class="rule">Only letters or numbers. Max 20 characters.</small>
+      <div class="error" id="err_second_name"></div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required />
+    <small class="rule">Must be a valid email format (like name@example.com).</small>
+    <div class="error" id="err_email"></div>
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="phone">Phone number</label>
+      <input id="phone" name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10 digits" required />
+      <small class="rule">Only numbers. Exactly 10 digits.</small>
+      <div class="error" id="err_phone"></div>
+    </div>
+
+    <div class="field">
+      <label for="eircode">Eircode</label>
+      <input id="eircode" name="eircode" type="text" maxlength="6" placeholder="6 characters" required />
+      <small class="rule">Must start with a number, be alphanumeric, and be exactly 6 characters long.</small>
+      <div class="error" id="err_eircode"></div>
+    </div>
+  </div>
+
+  <div>
+    <button id="submitBtn" type="submit">Submit</button>
+    <div class="status" id="status"></div>
+  </div>
+</form>
+```
+
+  </div>
+
+  <script>
+    (function () {
+      // Validation helpers (mirrors server-side)
+      const onlyLettersOrNumbers = v => /^[A-Za-z0-9]+$/.test(v);
+      const isValidEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      const onlyDigits = v => /^\d+$/.test(v);
+      const startsWithNumber = v => /^[0-9]/.test(v);
+      const isAlphanumeric = v => /^[A-Za-z0-9]+$/.test(v);
+
+      const qs = id => document.getElementById(id);
+
+      const form = qs('mainForm');
+      const statusEl = qs('status');
+      const submitBtn = qs('submitBtn');
+
+      function clearErrors() {
+        ['first_name','second_name','email','phone','eircode'].forEach(f => {
+          const el = qs('err_' + f);
+          el.textContent = '';
+          el.classList.remove('visible');
+        });
+        statusEl.textContent = '';
+      }
+
+      function showFieldError(field, msg) {
+        const el = qs('err_' + field);
+        el.textContent = msg;
+        el.classList.add('visible');
+      }
+
+      function validateAll(values) {
+        const errs = [];
+
+        const first = (values.first_name || '').trim();
+        const second = (values.second_name || '').trim();
+        const email = (values.email || '').trim();
+        const phone = (values.phone || '').trim();
+        const eircode = (values.eircode || '').trim();
+
+        // First name
+        if (!first) errs.push({ f:'first_name', m:'First name required' });
+        else if (first.length > 20) errs.push({ f:'first_name', m:'Max 20 characters' });
+        else if (!onlyLettersOrNumbers(first)) errs.push({ f:'first_name', m:'Only letters and numbers allowed' });
+
+        // Second name
+        if (!second) errs.push({ f:'second_name', m:'Second name required' });
+        else if (second.length > 20) errs.push({ f:'second_name', m:'Max 20 characters' });
+        else if (!onlyLettersOrNumbers(second)) errs.push({ f:'second_name', m:'Only letters and numbers allowed' });
+
+        // Email
+        if (!email) errs.push({ f:'email', m:'Email required' });
+        else if (!isValidEmail(email)) errs.push({ f:'email', m:'Invalid email format' });
+
+        // Phone
+        if (!phone) errs.push({ f:'phone', m:'Phone required' });
+        else if (!onlyDigits(phone)) errs.push({ f:'phone', m:'Phone must contain only numbers' });
+        else if (phone.length !== 10) errs.push({ f:'phone', m:'Phone must be exactly 10 digits' });
+
+        // Eircode
+        if (!eircode) errs.push({ f:'eircode', m:'Eircode required' });
+        else if (eircode.length !== 6) errs.push({ f:'eircode', m:'Eircode must be exactly 6 characters' });
+        else if (!startsWithNumber(eircode)) errs.push({ f:'eircode', m:'Eircode must start with a number' });
+        else if (!isAlphanumeric(eircode)) errs.push({ f:'eircode', m:'Eircode must be alphanumeric' });
+
+        return errs;
+      }
+
+      form.addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        clearErrors();
+
+        const values = {
+          first_name: qs('first_name').value,
+          second_name: qs('second_name').value,
+          email: qs('email').value,
+          phone: qs('phone').value,
+          eircode: qs('eircode').value
+        };
+
+        const errors = validateAll(values);
+
+        if (errors.length) {
+          errors.forEach(e => showFieldError(e.f, e.m));
+          statusEl.textContent = 'Fix errors before submitting.';
+          statusEl.style.color = '#b00020';
+          return;
+        }
+
+        // disable while sending
+        submitBtn.disabled = true;
+        statusEl.textContent = 'Submitting…';
+        statusEl.style.color = '#333';
+
+        try {
+          const res = await fetch('/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(values)
+          });
+
+          if (res.ok) {
+            statusEl.textContent = 'Form submitted successfully.';
+            statusEl.style.color = 'green';
+            form.reset();
+          } else {
+            const body = await res.json().catch(()=>({}));
+            if (body && body.errors && Array.isArray(body.errors)) {
+              // server returned structured validation errors
+              body.errors.forEach(err => {
+                if (err.field && err.msg) showFieldError(err.field, err.msg);
+              });
+              statusEl.textContent = 'Server validation failed. See fields.';
+              statusEl.style.color = '#b00020';
+            } else {
+              statusEl.textContent = body.message || 'Server error while submitting.';
+              statusEl.style.color = '#b00020';
+            }
+          }
+        } catch (err) {
+          console.error('Submit error', err);
+          statusEl.textContent = 'Network or server error.';
+          statusEl.style.color = '#b00020';
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+
+      // Optional: validate on blur for better UX
+      ['first_name','second_name','email','phone','eircode'].forEach(id => {
+        qs(id).addEventListener('blur', () => {
+          const values = {
+            first_name: qs('first_name').value,
+            second_name: qs('second_name').value,
+            email: qs('email').value,
+            phone: qs('phone').value,
+            eircode: qs('eircode').value
+          };
+          const errs = validateAll(values);
+          clearErrors();
+          errs.forEach(e => showFieldError(e.f, e.m));
+        });
+      });
+    })();
+  </script>
+
+</body>
+</html>

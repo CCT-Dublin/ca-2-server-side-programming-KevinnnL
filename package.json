@@ -12,6 +12,8 @@
   "type": "commonjs",
   "dependencies": {
     "csv-parse": "^6.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
     "mysql2": "^3.15.3"
   }
 }
