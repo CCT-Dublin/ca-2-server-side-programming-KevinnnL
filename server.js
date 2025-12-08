@@ -1,15 +1,50 @@
-// server.js
+// server.js (updated for Part C: middleware & request handling)
 const express = require('express');
 const path = require('path');
-const { createTableIfNotExists, pool } = require('./database'); // we'll extend database.js below
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
+
+const {
+  createFormTableIfNotExists,
+  insertFormRow,
+  pool
+} = require('./database'); // from your database.js
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-app.use(express.json());
+// Basic middleware (Security and request)
+app.use(helmet()); // sets many useful security headers
+app.use(express.json({ limit: '100kb' })); // limit JSON body size
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Minimal server-side validation (same rules as the form)
+// request logger
+app.use(morgan('combined'));
+
+// rate limiter from spam
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 60 sec window
+  max: 60,                 // limit each IP to 60 requests per windows
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use(limiter);
+
+// Middleware to ensure database
+async function ensureFormTableExists(req, res, next) {
+  try {
+    await createFormTableIfNotExists();
+    return next();
+  } catch (err) {
+    console.error('Error ensuring form table exists:', err);
+    // don't leak internal detail to client
+    return res.status(500).json({ message: 'Server database error' });
+  }
+}
+
+// Simple validator with the rules for Client-Side
 function onlyLettersOrNumbers(value) { return /^[A-Za-z0-9]+$/.test(value); }
 function isValidEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function onlyDigits(value) { return /^\d+$/.test(value); }
@@ -49,20 +84,30 @@ function validateForm(body) {
   return { errors, values: { first_name, second_name, email, phone, eircode } };
 }
 
-// ensure form table exists (create typed table if necessary)
-// We will call createFormTableIfNotExists (added in database.js below)
-const { createFormTableIfNotExists, insertFormRow } = require('./database');
-
-app.post('/submit', async (req, res) => {
+//Checking Endpoints
+app.get('/health', async (req, res) => {
   try {
-    // ensure table schema exists before saving
-    await createFormTableIfNotExists();
+    // check DB connectivity
+    const conn = await pool.getConnection();
+    try {
+      await conn.ping();
+    } finally {
+      conn.release();
+    }
+    return res.json({ status: 'ok', db: 'ok' });
+  } catch (err) {
+    console.error('Health check DB error:', err);
+    return res.status(500).json({ status: 'error', db: 'down' });
+  }
+});
 
-    // validate payload
+// Submiting routes using middleware making sure the schema exists
+app.post('/submit', ensureFormTableExists, async (req, res) => {
+  try {
     const { errors, values } = validateForm(req.body);
     if (errors.length) return res.status(400).json({ message: 'Validation failed', errors });
 
-    // insert safely
+    // insert database.js uses parameterized queries
     await insertFormRow(values);
     return res.status(201).json({ message: 'Inserted' });
   } catch (err) {
@@ -76,6 +121,54 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'form.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running: http://localhost:${PORT}`);
+// Error handler (FALLBACK)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ message: 'Unexpected server error' });
 });
+
+//Test database connection and port availability
+async function startServer() {
+  try {
+    // database check
+    const conn = await pool.getConnection();
+    try {
+      await conn.ping();
+      console.log('DB connection OK');
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    console.error('Unable to connect to database on startup:', err.message || err);
+    console.error('Server will not start until DB is reachable.');
+    process.exit(1); // fail fast for assignment environment
+  }
+
+  // start listen
+  const server = app.listen(PORT, () => {
+    console.log(`Server running: http://localhost:${PORT}`);
+  });
+
+  // catch EADDRINUSE (port already in use)
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Choose another port or stop the process using it.`);
+      process.exit(1);
+    } else {
+      console.error('Server error', err);
+      process.exit(1);
+    }
+  });
+
+  // shutdown handlers
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+    process.exit(1);
+  });
+}
+
+startServer();
+app.use(express.static(path.join(__dirname, 'public')));
