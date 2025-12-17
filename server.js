@@ -1,55 +1,41 @@
-// server.js (updated for Part C: middleware & request handling)
+// server.js (clean + fixed)
+
 const express = require('express');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 
-const {
-  createFormTableIfNotExists,
-  insertFormRow,
-  pool
-} = require('./database'); // from your database.js
+const { createFormTableIfNotExists, insertFormRow, pool } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-// Basic middleware (Security and request)
-app.use(helmet()); // sets many useful security headers
-app.use(express.json({ limit: '100kb' })); // limit JSON body size
+// -------------------- Middleware --------------------
+app.use(helmet());
+app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// request logger
 app.use(morgan('combined'));
 
-// rate limiter from spam
 const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 60 sec window
-  max: 60,                 // limit each IP to 60 requests per windows
+  windowMs: 60 * 1000,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false
 });
 app.use(limiter);
 
-// Middleware to ensure database
-async function ensureFormTableExists(req, res, next) {
-  try {
-    await createFormTableIfNotExists();
-    return next();
-  } catch (err) {
-    console.error('Error ensuring form table exists:', err);
-    // don't leak internal detail to client
-    return res.status(500).json({ message: 'Server database error' });
-  }
-}
+// ✅ Serve static files ONLY ONCE
+const PUBLIC_DIR = path.join(__dirname, 'public');
+console.log('Serving static files from:', PUBLIC_DIR);
+app.use(express.static(PUBLIC_DIR));
 
-// Simple validator with the rules for Client-Side
-function onlyLettersOrNumbers(value) { return /^[A-Za-z0-9]+$/.test(value); }
-function isValidEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
-function onlyDigits(value) { return /^\d+$/.test(value); }
-function isAlphanumeric(value) { return /^[A-Za-z0-9]+$/.test(value); }
-function startsWithNumber(value) { return /^[0-9]/.test(value); }
+// -------------------- Validation --------------------
+function onlyLettersOrNumbers(v) { return /^[A-Za-z0-9]+$/.test(v); }
+function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+function onlyDigits(v) { return /^\d+$/.test(v); }
+function isAlphanumeric(v) { return /^[A-Za-z0-9]+$/.test(v); }
+function startsWithNumber(v) { return /^[0-9]/.test(v); }
 
 function validateForm(body) {
   const errors = [];
@@ -84,53 +70,56 @@ function validateForm(body) {
   return { errors, values: { first_name, second_name, email, phone, eircode } };
 }
 
-//Checking Endpoints
+// -------------------- DB schema middleware --------------------
+async function ensureFormTableExists(req, res, next) {
+  try {
+    await createFormTableIfNotExists();
+    next();
+  } catch (err) {
+    console.error('Error ensuring form table exists:', err);
+    res.status(500).json({ message: 'Server database error' });
+  }
+}
+
+// -------------------- Routes --------------------
 app.get('/health', async (req, res) => {
   try {
-    // check DB connectivity
     const conn = await pool.getConnection();
-    try {
-      await conn.ping();
-    } finally {
-      conn.release();
-    }
-    return res.json({ status: 'ok', db: 'ok' });
+    try { await conn.ping(); } finally { conn.release(); }
+    res.json({ status: 'ok', db: 'ok' });
   } catch (err) {
     console.error('Health check DB error:', err);
-    return res.status(500).json({ status: 'error', db: 'down' });
+    res.status(500).json({ status: 'error', db: 'down' });
   }
 });
 
-// Submiting routes using middleware making sure the schema exists
 app.post('/submit', ensureFormTableExists, async (req, res) => {
   try {
     const { errors, values } = validateForm(req.body);
     if (errors.length) return res.status(400).json({ message: 'Validation failed', errors });
 
-    // insert database.js uses parameterized queries
     await insertFormRow(values);
-    return res.status(201).json({ message: 'Inserted' });
+    res.status(201).json({ message: 'Inserted' });
   } catch (err) {
     console.error('Submit error:', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// serve the form at the root
+// Serve the HTML form
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'form.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'form.html'));
 });
 
-// Error handler (FALLBACK)
+// -------------------- Error handler --------------------
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Unexpected server error' });
 });
 
-//Test database connection and port availability
+// -------------------- Start server + port check --------------------
 async function startServer() {
   try {
-    // database check
     const conn = await pool.getConnection();
     try {
       await conn.ping();
@@ -140,35 +129,21 @@ async function startServer() {
     }
   } catch (err) {
     console.error('Unable to connect to database on startup:', err.message || err);
-    console.error('Server will not start until DB is reachable.');
-    process.exit(1); // fail fast for assignment environment
+    process.exit(1);
   }
 
-  // start listen
   const server = app.listen(PORT, () => {
     console.log(`Server running: http://localhost:${PORT}`);
   });
 
-  // catch EADDRINUSE (port already in use)
   server.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use. Choose another port or stop the process using it.`);
-      process.exit(1);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use.`);
     } else {
-      console.error('Server error', err);
-      process.exit(1);
+      console.error('Server error:', err);
     }
-  });
-
-  // shutdown handlers
-  process.on('unhandledRejection', (reason) => {
-    console.error('Unhandled Rejection:', reason);
-  });
-  process.on('uncaughtException', (err) => {
-    console.error('Uncaught exception:', err);
     process.exit(1);
   });
 }
 
 startServer();
-app.use(express.static(path.join(__dirname, 'public')));
