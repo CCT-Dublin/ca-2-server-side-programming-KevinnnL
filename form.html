@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Character encoding and responsive scaling -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Page title -->
+  <title>Secure Form</title>
+
+  <!-- Link to external CSS file -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- Main page container -->
+  <div class="page-wrapper">
+
+    <!-- Card that holds the form -->
+    <div class="form-card">
+      <h1>Submit Details</h1>
+
+      <!-- Form element (HTML validation disabled to use JavaScript validation) -->
+      <form id="dbForm" novalidate>
+
+        <!-- First Name input -->
+        <label for="first_name">First name</label>
+        <input id="first_name" name="first_name" maxlength="20" required />
+        <div class="hint">Letters or numbers only, max 20 chars.</div>
+
+        <!-- Second Name input -->
+        <label for="second_name">Second name</label>
+        <input id="second_name" name="second_name" maxlength="20" required />
+        <div class="hint">Letters or numbers only, max 20 chars.</div>
+
+        <!-- Email input -->
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required />
+        <div class="hint">Must be a valid email format.</div>
+
+        <!-- Phone Number input -->
+        <label for="phone_number">Phone number</label>
+        <input id="phone_number" name="phone_number" inputmode="numeric" required />
+        <div class="hint">Numbers only, exactly 10 digits.</div>
+
+        <!-- Eircode input -->
+        <label for="eircode">Eircode</label>
+        <input id="eircode" name="eircode" required />
+        <div class="hint">Must start with a number, alphanumeric, exactly 6 characters.</div>
+
+        <!-- Submit button -->
+        <button type="submit">Submit</button>
+
+        <!-- Area to display success or error messages -->
+        <div id="msg" role="alert"></div>
+
+      </form>
+    </div>
+
+    <!-- System architecture diagram section -->
+    <div class="diagram-section">
+      <h2>System Architecture Overview</h2>
+      <p>
+        This diagram shows how data flows from the browser to the Express server
+        and is securely stored in the MySQL database.
+      </p>
+
+      <!-- System diagram image -->
+      <img src="system-architeture.png" alt="System Diagram">
+    </div>
+
+  </div>
+
+  <!-- JavaScript section -->
+  <script>
+
+    /* Regular expressions used for validation */
+    const nameRegex = /^[A-Za-z0-9]{1,20}$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^\d{10}$/;
+    const eircodeRegex = /^[0-9][A-Za-z0-9]{5}$/;
+
+    /* Get form and message elements */
+    const form = document.getElementById("dbForm");
+    const msg = document.getElementById("msg");
+
+    /* Displays success or error messages to the user */
+    function showMessage(text, ok = false) {
+      msg.className = ok ? "ok" : "error";
+      msg.textContent = text;
+    }
+
+    /* Cleans and formats user input before validation */
+    function normalizeInputs(data) {
+      data.first_name = data.first_name.trim();
+      data.second_name = data.second_name.trim();
+      data.email = data.email.trim();
+      data.phone_number = data.phone_number.trim();
+      data.eircode = data.eircode.trim().toUpperCase();
+      return data;
+    }
+
+    /* Validates input values using regex rules */
+    function validate(data) {
+      if (!nameRegex.test(data.first_name))
+        return "First name must be letters/numbers only, max 20 characters.";
+
+      if (!nameRegex.test(data.second_name))
+        return "Second name must be letters/numbers only, max 20 characters.";
+
+      if (!emailRegex.test(data.email))
+        return "Email must be a valid email format.";
+
+      if (!phoneRegex.test(data.phone_number))
+        return "Phone number must contain only numbers and be exactly 10 digits.";
+
+      if (!eircodeRegex.test(data.eircode))
+        return "Eircode must start with a number, be alphanumeric, and be exactly 6 characters.";
+
+      return null; // No errors
+    }
+
+    /* Handles form submission */
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); // Stop default form submission
+
+      /* Collect and clean form data */
+      const data = normalizeInputs({
+        first_name: document.getElementById("first_name").value,
+        second_name: document.getElementById("second_name").value,
+        email: document.getElementById("email").value,
+        phone_number: document.getElementById("phone_number").value,
+        eircode: document.getElementById("eircode").value
+      });
+
+      /* Validate user input */
+      const error = validate(data);
+      if (error) return showMessage(error, false);
+
+      try {
+        /* Send validated data to the server */
+        const res = await fetch("/api/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+
+        const payload = await res.json();
+
+        /* Handle server response */
+        if (!res.ok)
+          return showMessage(payload.error || "Submission failed.", false);
+
+        /* Success */
+        showMessage("Submitted and saved to database!", true);
+        form.reset();
+
+      } catch (err) {
+        /* Network or server error */
+        showMessage("Network/server error: " + err.message, false);
+      }
+    });
+
+  </script>
+</body>
+</html>

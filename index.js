@@ -1,174 +1,158 @@
 // index.js
-// Usage: node index.js path/to/data.csv
-// If no path provided, defaults to ./data.csv
+require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
+const csv = require("csv-parser");
+const { pool, testConnection } = require("./database");
 
-const fs = require('fs');
-const path = require('path');
-const { parse } = require('csv-parse');
-const { createTableIfNotExists, insertMany } = require('./database');
+// set your CSV file name here
+const CSV_FILE = path.join(__dirname, "data.csv");
 
-const INPUT_FILE = process.argv[2] || path.join(process.cwd(), 'data.csv');
-
-function toSnakeCase(s) {
-  return s
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^\w]/g, '_')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/__+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase();
+// ====== VALIDATION HELPERS ======
+function isNonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
 }
 
 function isValidEmail(v) {
-  if (!v) return false;
-  // simple email check
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!isNonEmptyString(v)) return false;
+  // simple email check 
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
-function isValidDate(v) {
-  if (!v) return false;
-  const d = new Date(v);
-  return !Number.isNaN(d.getTime());
+function isValidIntOrEmpty(v) {
+  if (v === undefined || v === null) return true;
+  const s = String(v).trim();
+  if (s === "") return true;
+  return Number.isInteger(Number(s));
 }
 
-function isIntegerLike(v) {
-  if (v === null || v === undefined || v === '') return false;
-  return /^-?\d+$/.test(String(v).trim());
+function isValidDateOrEmpty(v) {
+  if (v === undefined || v === null) return true;
+  const s = String(v).trim();
+  if (s === "") return true;
+  // expects YYYY-MM-DD
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function isNumberLike(v) {
-  if (v === null || v === undefined || v === '') return false;
-  return !Number.isNaN(Number(String(v).trim()));
-}
+// REQUIRED COLUMNS 
+// Dataset matched
+const REQUIRED_COLUMNS = ["first_name", "last_name", "email"];
 
-// Simple validator that infers column type from header name
-function validateRow(originalRow, headerMeta) {
-  // originalRow: object {originalHeaderName: value}
-  // headerMeta: array of { orig, snake }
-  const validated = {};
+// Validate types 
+const OPTIONAL_COLUMNS = ["age", "created_at"];
+
+// Validate one CSV row
+function validateRow(row) {
   const errors = [];
 
-  for (const { orig, snake } of headerMeta) {
-    let val = originalRow[orig];
-    if (typeof val === 'string') val = val.trim();
-
-    // Basic type heuristics based on header name
-    const h = orig.toLowerCase();
-
-    if (h.includes('email')) {
-      if (val === '' || val == null) {
-        errors.push(`${orig}: empty email`);
-      } else if (!isValidEmail(val)) {
-        errors.push(`${orig}: invalid email`);
-      }
-    } else if (h.includes('date') || h.includes('dob') || h.includes('birth')) {
-      if (val === '' || val == null) {
-        errors.push(`${orig}: empty date`);
-      } else if (!isValidDate(val)) {
-        errors.push(`${orig}: invalid date`);
-      }
-    } else if (/(id$|^id$|_id$|^id_|^id)/i.test(snake) || /(age|count|qty|number|price|amount|total)/i.test(h)) {
-      // treat as integer-like if header suggests numeric
-      if (val === '' || val == null) {
-        errors.push(`${orig}: empty numeric`);
-      } else if (!isNumberLike(val)) {
-        errors.push(`${orig}: not numeric`);
-      }
-    } else {
-      // free text: enforce presence (non-empty) by default
-      if (val === '' || val == null) {
-        // optional: allow empty values — change policy here if needed
-        // For this assignment we'll mark empty fields as errors to catch missing data
-        errors.push(`${orig}: empty`);
-      }
+  // Required checks
+  for (const col of REQUIRED_COLUMNS) {
+    if (!isNonEmptyString(row[col])) {
+      errors.push(`Missing/empty required field: ${col}`);
     }
-
-    // store as string (we created table columns as VARCHAR(255))
-    validated[snake] = (val === undefined || val === null) ? null : String(val);
   }
 
-  return { validated, errors };
+  // Specific checks
+  if (row.email && !isValidEmail(row.email)) {
+    errors.push("Invalid email format");
+  }
+
+  if (!isValidIntOrEmpty(row.age)) {
+    errors.push("age must be an integer (or empty)");
+  }
+
+  if (!isValidDateOrEmpty(row.created_at)) {
+    errors.push("created_at must be YYYY-MM-DD (or empty)");
+  }
+
+  return errors;
 }
 
-(async function main() {
-  if (!fs.existsSync(INPUT_FILE)) {
-    console.error(`CSV file not found: ${INPUT_FILE}`);
+// Inserting one valid row into DB
+async function insertRow(row) {
+  // Convert/clean values
+  const clean = {
+    first_name: row.first_name?.trim(),
+    last_name: row.last_name?.trim(),
+    email: row.email?.trim(),
+    age: row.age?.trim() === "" ? null : Number(row.age),
+    created_at: row.created_at?.trim() === "" ? null : row.created_at.trim()
+  };
+
+  const sql = `
+    INSERT INTO mysql_table (first_name, last_name, email, age, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  const params = [
+    clean.first_name,
+    clean.last_name,
+    clean.email,
+    clean.age,
+    clean.created_at
+  ];
+
+  await pool.execute(sql, params);
+}
+
+//  MAIN 
+async function run() {
+  // 1) Verify DB connectivity
+  await testConnection();
+  console.log("✅ Connected to MySQL successfully.");
+
+  // 2) Check CSV exists
+  if (!fs.existsSync(CSV_FILE)) {
+    console.error(`❌ CSV file not found: ${CSV_FILE}`);
     process.exit(1);
   }
 
-  const raw = fs.readFileSync(INPUT_FILE, 'utf8');
+  let rowNumber = 1; // data row number (not counting header)
+  let validCount = 0;
+  let invalidCount = 0;
 
-  parse(raw, { columns: true, skip_empty_lines: true, relax_quotes: true, trim: false }, async (err, records) => {
-    if (err) {
-      console.error('Failed parsing CSV:', err.message);
-      process.exit(1);
-    }
+  const insertPromises = [];
 
-    if (!records || records.length === 0) {
-      console.log('No data rows found in CSV.');
-      process.exit(0);
-    }
+  // 3) Stream CSV rows
+  fs.createReadStream(CSV_FILE)
+    .pipe(csv())
+    .on("data", (row) => {
+      // rowNumber refers to “which record in the CSV data”
+      const errors = validateRow(row);
 
-    // Build header metadata from the first record's keys (original headers)
-    const origHeaders = Object.keys(records[0]);
-    const headerMeta = origHeaders.map(h => ({ orig: h, snake: toSnakeCase(h) }));
-
-    // Create table with snake_case columns if not exists
-    const columnNames = headerMeta.map(h => h.snake);
-    try {
-      await createTableIfNotExists(columnNames);
-      console.log('Table checked/created (mysql_table).');
-    } catch (createErr) {
-      console.error('Error creating table:', createErr.message);
-      process.exit(1);
-    }
-       // Validate each row and collect valid rows
-    const validRows = [];
-    const errors = [];
-
-    for (let i = 0; i < records.length; i++) {
-      const row = records[i];
-      const rowNumber = i + 2; // +2: because CSV row 1 = headers, data starts at row 2
-      const { validated, errors: rowErrors } = validateRow(row, headerMeta);
-
-      if (rowErrors.length > 0) {
-        errors.push({ row: rowNumber, issues: rowErrors });
-        console.error(`Row ${rowNumber} failed validation: ${rowErrors.join('; ')}`);
-        continue;
+      if (errors.length > 0) {
+        invalidCount++;
+        console.error(`❌ Invalid record at CSV row ${rowNumber}: ${errors.join(" | ")}`);
+      } else {
+        validCount++;
+        // Insert valid row (queued)
+        insertPromises.push(
+          insertRow(row).catch((err) => {
+            invalidCount++;
+            validCount--;
+            console.error(`❌ DB insert failed at CSV row ${rowNumber}: ${err.message}`);
+          })
+        );
       }
 
-      // Build array of values in columnNames order for bulk insert
-      const values = columnNames.map(col => validated[col]);
-      validRows.push(values);
-    }
+      rowNumber++;
+    })
+    .on("end", async () => {
+      // 4) Wait inserts finish
+      await Promise.all(insertPromises);
 
-    console.log(`Validation complete. ${validRows.length} valid rows, ${errors.length} invalid rows.`);
+      console.log("====================================");
+      console.log(`✅ Valid rows inserted: ${validCount}`);
+      console.log(`❌ Invalid rows skipped: ${invalidCount}`);
+      console.log("Done.");
+      await pool.end();
+    })
+    .on("error", (err) => {
+      console.error("❌ CSV read error:", err.message);
+      process.exit(1);
+    });
+}
 
-    if (validRows.length > 0) {
-      try {
-        const res = await insertMany(columnNames, validRows);
-        console.log(`Inserted ${res.inserted} rows into mysql_table.`);
-      } catch (insErr) {
-        console.error('Insert failed:', insErr.message);
-        process.exit(1);
-      }
-    } else {
-      console.log('No valid rows to insert.');
-    }
-
-    // Optionally output a report file with errors
-    if (errors.length > 0) {
-      const report = {
-        timestamp: new Date().toISOString(),
-        file: INPUT_FILE,
-        invalid_count: errors.length,
-        details: errors
-      };
-      fs.writeFileSync('csv_validation_report.json', JSON.stringify(report, null, 2), 'utf8');
-      console.log('Validation report saved to csv_validation_report.json');
-    }
-
-    process.exit(0);
-  });
-})();
+run().catch((err) => {
+  console.error("❌ Fatal error:", err.message);
+  process.exit(1);
+});

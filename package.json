@@ -1,5 +1,5 @@
 {
-  "name": "ca2-server-side-programming",
+  "name": "ca2restart",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,11 +11,12 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "csv-parse": "^6.1.0",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "morgan": "^1.10.1",
-    "mysql2": "^3.15.3"
+    "mysql": "^2.18.1"
   }
 }
